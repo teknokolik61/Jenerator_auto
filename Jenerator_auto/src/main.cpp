@@ -1,10 +1,5 @@
 #include <Arduino.h>
 #include "app/app.h"
 
-void setup() {
-  appSetup();
-}
-
-void loop() {
-  appLoop();
-}
+void setup() { appSetup(); }
+void loop()  { appLoop();  }

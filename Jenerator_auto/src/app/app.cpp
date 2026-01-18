@@ -1,32 +1,41 @@
-#include "app.h"
+#include "app/app.h"
 #include <Arduino.h>
+
 #include "version.h"
+#include "ayarlar.h"
+#include "app/hw.h"
+
+#if USE_LCD
+  #include "ui/ui_lcd.h"
+#endif
 
 void appSetup() {
   Serial.begin(115200);
   delay(200);
+
   Serial.println();
   Serial.print("Boot OK. FW=");
   Serial.println(FW_VERSION);
 
-  // PSRAM test (varsa bilgi basar)
-  #if defined(BOARD_HAS_PSRAM)
-    Serial.print("PSRAM: ");
-    Serial.println(psramFound() ? "FOUND" : "NOT FOUND");
-    if (psramFound()) {
-      Serial.print("PSRAM size: ");
-      Serial.println(ESP.getPsramSize());
-    }
-  #endif
+  hwPrintInfo();
 
-  Serial.print("Heap: ");
-  Serial.println(ESP.getFreeHeap());
+#if USE_LCD
+  if (uiLcdInit()) {
+    uiLcdTestDraw();
+  } else {
+    Serial.println("LCD INIT FAILED");
+  }
+#endif
 }
 
 void appLoop() {
   static uint32_t t = 0;
-  if (millis() - t > 1000) {
+  if (millis() - t > 2000) {
     t = millis();
     Serial.println("tick");
+
+#if USE_LCD
+    uiLcdTestDraw();
+#endif
   }
 }
