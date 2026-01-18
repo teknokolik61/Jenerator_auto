@@ -26,15 +26,13 @@ static void blOn(bool on) {
 
 bool uiLcdInit() {
   blOn(true);
-
-  // ESP32-S3 custom SPI pin mapping
   SPI.begin(TFT_SCK, TFT_MISO, TFT_MOSI, TFT_CS);
 
 #if UI_DRV_ST7789
   tft.init(TFT_WIDTH, TFT_HEIGHT);
   tft.setRotation(TFT_ROTATION);
 #elif UI_DRV_ILI9341
-  if (!tft.begin()) return false;
+  tft.begin();
   tft.setRotation(TFT_ROTATION);
 #endif
 
@@ -43,8 +41,36 @@ bool uiLcdInit() {
   tft.setTextSize(2);
   tft.setCursor(10, 10);
   tft.println("LCD INIT OK");
-
   return true;
+}
+
+// OTA/WiFi genel mesaj (üst bant)
+void uiLcdShowMsg(const char* line1, const char* line2) {
+  tft.fillRect(0, 0, TFT_WIDTH, 60, 0x0000);
+  tft.setTextSize(2);
+  tft.setTextColor(0xFFFF, 0x0000);
+  tft.setCursor(10, 8);
+  tft.print(line1 ? line1 : "");
+
+  tft.setTextSize(1);
+  tft.setCursor(10, 35);
+  tft.print(line2 ? line2 : "");
+}
+
+// Yeni: WiFi + IP (üst bant)
+void uiLcdShowWifi(const char* wifiStatus, const char* ipText) {
+  // 2 satır daha çok sığsın diye küçük font
+  tft.fillRect(0, 0, TFT_WIDTH, 40, 0x0000);
+  tft.setTextSize(1);
+  tft.setTextColor(0xFFFF, 0x0000);
+
+  tft.setCursor(6, 6);
+  tft.print("WiFi: ");
+  tft.print(wifiStatus ? wifiStatus : "-");
+
+  tft.setCursor(6, 22);
+  tft.print("IP  : ");
+  tft.print(ipText ? ipText : "-");
 }
 
 void uiLcdTestDraw() {
@@ -54,15 +80,16 @@ void uiLcdTestDraw() {
 
   tft.setTextSize(2);
   tft.setTextColor(0x07E0, 0x0000);
-  tft.setCursor(10, 20);
+  tft.setCursor(10, 70);
   tft.println("JENERATOR AUTO");
 
-  int h = TFT_HEIGHT / 6;
-  tft.fillRect(0, h * 1, TFT_WIDTH, h, 0xF800);
-  tft.fillRect(0, h * 2, TFT_WIDTH, h, 0x07E0);
-  tft.fillRect(0, h * 3, TFT_WIDTH, h, 0x001F);
-  tft.fillRect(0, h * 4, TFT_WIDTH, h, 0xFFE0);
-  tft.fillRect(0, h * 5, TFT_WIDTH, h, 0x07FF);
+  int h = (TFT_HEIGHT - 120) / 6;
+  int y0 = 110;
+  tft.fillRect(0, y0 + h * 0, TFT_WIDTH, h, 0xF800);
+  tft.fillRect(0, y0 + h * 1, TFT_WIDTH, h, 0x07E0);
+  tft.fillRect(0, y0 + h * 2, TFT_WIDTH, h, 0x001F);
+  tft.fillRect(0, y0 + h * 3, TFT_WIDTH, h, 0xFFE0);
+  tft.fillRect(0, y0 + h * 4, TFT_WIDTH, h, 0x07FF);
 
   tft.setTextSize(2);
   tft.setTextColor(0xFFFF, 0x0000);
