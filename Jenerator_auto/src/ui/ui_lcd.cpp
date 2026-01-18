@@ -81,7 +81,7 @@ void uiLcdTestDraw() {
   tft.setTextSize(2);
   tft.setTextColor(0x07E0, 0x0000);
   tft.setCursor(10, 70);
-  tft.println("JENERATOR AUTO");
+  tft.println("JENERATOR AUTO2222222");
 
   int h = (TFT_HEIGHT - 120) / 6;
   int y0 = 110;

@@ -1,11 +1,11 @@
 #include "ota/ota_update.h"
 
 #include <Arduino.h>
-#include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <Update.h>
 #include <ArduinoJson.h>
+#include <Preferences.h>
 
 #include "ayarlar.h"
 #include "version.h"
@@ -18,6 +18,9 @@
 
 static uint32_t s_lastCheckMs = 0;
 
+static Preferences s_prefs;
+static String s_blockedTag;
+
 static void uiMsg(const char* a, const char* b) {
   Serial.print("[OTA] "); Serial.print(a);
   if (b && b[0]) { Serial.print(" | "); Serial.print(b); }
@@ -27,44 +30,20 @@ static void uiMsg(const char* a, const char* b) {
 #endif
 }
 
+static void prefsInitOnce() {
+  static bool inited = false;
+  if (inited) return;
+  inited = true;
+  s_prefs.begin("ota", false);
+  s_blockedTag = s_prefs.getString("blocked", "");
+}
+
 static void addAuthHeaders(HTTPClient& http) {
   http.addHeader("User-Agent", OTA_HTTP_USER_AGENT);
   if (GITHUB_TOKEN && GITHUB_TOKEN[0]) {
     http.addHeader("Authorization", String("token ") + GITHUB_TOKEN);
   }
   http.addHeader("Accept", "application/vnd.github+json");
-}
-
-static void netDiagOnce() {
-  static bool done = false;
-  if (done) return;
-  done = true;
-
-  Serial.println("[OTA] === NET DIAG ===");
-  Serial.print("[OTA] WiFi: "); Serial.println(wifiStatusText());
-  Serial.print("[OTA] SSID: "); Serial.println(WiFi.SSID());
-  Serial.print("[OTA] IP  : "); Serial.println(WiFi.localIP());
-  Serial.print("[OTA] GW  : "); Serial.println(WiFi.gatewayIP());
-  Serial.print("[OTA] DNS : "); Serial.println(WiFi.dnsIP());
-  Serial.print("[OTA] RSSI: "); Serial.println(WiFi.RSSI());
-
-  IPAddress ip;
-  bool dnsOk = WiFi.hostByName("api.github.com", ip);
-  Serial.print("[OTA] DNS api.github.com: ");
-  if (dnsOk) Serial.println(ip);
-  else       Serial.println("FAIL");
-
-  WiFiClientSecure c;
-  c.setInsecure();
-  c.setTimeout(8000);
-  Serial.print("[OTA] TCP 443 connect: ");
-  if (c.connect("api.github.com", 443)) {
-    Serial.println("OK");
-    c.stop();
-  } else {
-    Serial.println("FAIL");
-  }
-  Serial.println("[OTA] ================");
 }
 
 static bool parseVer(const char* s, int& major, int& minor) {
@@ -125,9 +104,7 @@ static bool fetchLatest(String& outTag, String& outUrl) {
   outTag = "";
   outUrl = "";
 
-  String api = "https://api.github.com/repos/";
-  api += OTA_GH_OWNER; api += "/"; api += OTA_GH_REPO;
-  String urlLatest = api + "/releases/latest";
+  String urlLatest = String("https://api.github.com/repos/") + OTA_GH_OWNER + "/" + OTA_GH_REPO + "/releases/latest";
 
   WiFiClientSecure client;
   client.setInsecure();
@@ -145,11 +122,8 @@ static bool fetchLatest(String& outTag, String& outUrl) {
 
   int code = http.GET();
   if (code != HTTP_CODE_OK) {
-    // -1 gibi negatiflerde “sebep” yazdıralım
-    String err = http.errorToString(code);
     uiMsg("API HTTP error", String(code).c_str());
-    uiMsg("API error str", err.c_str());
-    uiMsg("URL", urlLatest.c_str());
+    uiMsg("API error str", http.errorToString(code).c_str());
     http.end();
     return false;
   }
@@ -157,6 +131,7 @@ static bool fetchLatest(String& outTag, String& outUrl) {
   DynamicJsonDocument doc(24576);
   auto err = deserializeJson(doc, http.getStream());
   http.end();
+
   if (err) {
     uiMsg("JSON parse error", err.c_str());
     return false;
@@ -170,7 +145,8 @@ static bool fetchLatest(String& outTag, String& outUrl) {
   return true;
 }
 
-static bool downloadAndFlash(const char* url) {
+// ✅ tag ile birlikte yaz ve restart etmeden hemen önce "pending" kaydet
+static bool downloadAndFlash(const char* url, const char* tag) {
   uiMsg("Update indiriliyor", url);
 
   WiFiClientSecure client;
@@ -217,30 +193,57 @@ static bool downloadAndFlash(const char* url) {
     return false;
   }
 
+  // ✅ Restart öncesi pending yaz
+  prefsInitOnce();
+  s_prefs.putString("pending", tag);
+
   uiMsg("Update OK", "Restart...");
   delay(500);
   ESP.restart();
   return true;
 }
 
-void otaInit() { s_lastCheckMs = 0; }
+void otaInit() {
+  prefsInitOnce();
+
+  // ✅ Eğer önceki boot'ta update "pending" bırakmışsa burada doğrula
+  String pending = s_prefs.getString("pending", "");
+  if (pending.length()) {
+    if (pending == String(FW_VERSION)) {
+      // yeni firmware açıldı => başarı
+      s_prefs.remove("pending");
+      s_prefs.remove("blocked");
+      s_blockedTag = "";
+      uiMsg("OTA tamam", pending.c_str());
+    } else {
+      // yeni firmware açılmadı => aynı tag'i blokla (döngü kırılır)
+#if OTA_BLOCK_REPEAT_SAME_TAG
+      s_prefs.putString("blocked", pending);
+      s_blockedTag = pending;
+#endif
+      s_prefs.remove("pending");
+      uiMsg("OTA basarisiz", pending.c_str());
+      uiMsg("Not", "FW_VERSION/tag uyumlu mu?");
+    }
+  }
+
+  s_lastCheckMs = 0;
+}
 
 bool otaCheckNow(bool force) {
+  (void)force;
+
   if (!USE_OTA) return false;
 
-  if (!force) {
-    uint32_t now = millis();
-    if (s_lastCheckMs && (now - s_lastCheckMs) < OTA_CHECK_INTERVAL_MS) return false;
-  }
-  s_lastCheckMs = millis();
+  // interval
+  uint32_t now = millis();
+  if (s_lastCheckMs && (now - s_lastCheckMs) < OTA_CHECK_INTERVAL_MS) return false;
+  s_lastCheckMs = now;
 
   if (!wifiEnsureConnected()) {
     uiMsg("WiFi yok", wifiStatusText());
     return false;
   }
-
-  // ✅ Sadece bir kere ağ teşhisi basalım
-  netDiagOnce();
 
   uiMsg("Release kontrol", "");
 
@@ -250,13 +253,23 @@ bool otaCheckNow(bool force) {
     return false;
   }
 
+  // ✅ bloklu tag ise tekrar indirme (loop biter)
+#if OTA_BLOCK_REPEAT_SAME_TAG
+  if (s_blockedTag.length() && tag == s_blockedTag) {
+    uiMsg("OTA bloklu", tag.c_str());
+    uiMsg("Sebep", "Yeni FW acilmadi; yeni bin yukle");
+    return false;
+  }
+#endif
+
+  // versiyon kıyası
   if (cmpVer(tag.c_str(), FW_VERSION) <= 0) {
     uiMsg("Guncel", tag.c_str());
     return true;
   }
 
   uiMsg("Yeni surum bulundu", tag.c_str());
-  return downloadAndFlash(url.c_str());
+  return downloadAndFlash(url.c_str(), tag.c_str());
 }
 
 void otaLoop() {

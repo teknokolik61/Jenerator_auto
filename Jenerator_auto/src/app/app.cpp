@@ -49,7 +49,7 @@ void appSetup() {
   lcdShowWifiNow();
 
   if (OTA_CHECK_ON_BOOT) {
-    otaCheckNow(true);
+    otaCheckNow(false);
     lcdShowWifiNow();
   }
 #endif

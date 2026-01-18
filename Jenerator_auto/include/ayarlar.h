@@ -46,3 +46,6 @@ inline constexpr const char* OTA_ASSET_NAME_HINT = "firmware.bin";
 
 // GitHub API bazı durumlarda User-Agent ister
 inline constexpr const char* OTA_HTTP_USER_AGENT = "JeneratorAuto-ESP32S3";
+
+// OTA döngü koruması: aynı tag update edildi sanılıp boot sonrası açılmazsa tekrar deneme
+#define OTA_BLOCK_REPEAT_SAME_TAG 1
