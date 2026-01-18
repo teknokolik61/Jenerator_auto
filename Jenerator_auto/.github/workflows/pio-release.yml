@@ -1,0 +1,40 @@
+name: Build & Release (PlatformIO)
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install PlatformIO
+        run: pip install -U platformio
+
+      - name: Build firmware
+        run: pio run -e esp32-s3-n16r8
+
+      - name: Prepare asset name
+        run: |
+          cp .pio/build/esp32-s3-n16r8/firmware.bin firmware.bin
+
+      - name: Create GitHub Release & upload firmware.bin
+        uses: softprops/action-gh-release@v2
+        with:
+          files: firmware.bin
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
